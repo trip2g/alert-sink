@@ -1,0 +1,22 @@
+groups:
+  - name: demo
+    rules:
+      # Always firing: proves the pipeline end to end right after startup.
+      - alert: DemoAlwaysFiring
+        expr: vector(1)
+        for: 15s
+        labels:
+          severity: info
+        annotations:
+          summary: "Demo alert that always fires."
+          description: "This alert exists so the demo produces an incident note within a minute of docker compose up."
+
+      # Resolvable: docker compose stop demo-target / start demo-target.
+      - alert: DemoTargetDown
+        expr: up{job="demo-target"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "The demo scrape target is down."
+          description: "Prometheus cannot scrape demo-target. Start the container again and this incident resolves in place."

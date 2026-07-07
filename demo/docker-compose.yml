@@ -1,0 +1,70 @@
+# Demo stack: prometheus -> alertmanager -> alert-sink -> trip2g.
+# Run from the demo/ directory:  docker compose up --build
+# Then open http://localhost:8080/incidents for the incident magazine.
+#
+# The JWT secret is shared between trip2g and alert-sink: the sink self-signs
+# short-lived admin tokens for this one instance with it. In a real deployment
+# give the sink a dedicated trip2g instance so the blast radius of the secret
+# is only the alert history.
+
+services:
+  trip2g:
+    image: ghcr.io/trip2g/trip2g:latest
+    ports:
+      - "${DEMO_TRIP2G_PORT:-8080}:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      INTERNAL_LISTEN_ADDR: ":8082"
+      DB_FILE: /data/data.sqlite3
+      GIT_API_REPO_PATH: /data/git
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_DIR: /data/storage
+      PUBLIC_URL: http://localhost:8080
+      OWNER_EMAIL: demo@local
+      JWT_SECRET: ${DEMO_JWT_SECRET:-demo-jwt-secret-change-me}
+      DATA_ENCRYPTION_KEY: ${DEMO_DATA_ENC_KEY:-0123456789abcdef0123456789abcdef}
+      LOG_LEVEL: info
+      # DEV mode: sign-in codes are printed to the logs, no SMTP needed.
+      DEV: "true"
+      FEATURES: '{"vector_search": {"enabled": false}}'
+    volumes:
+      - trip2g-data:/data
+
+  alert-sink:
+    build:
+      context: ..
+      dockerfile: cmd/alert-sink/Dockerfile
+    environment:
+      # Inside a compose network the sink must bind beyond loopback so
+      # Alertmanager and Prometheus can reach it.
+      ALERT_SINK_LISTEN_ADDR: 0.0.0.0:9095
+      ALERT_SINK_TRIP2G_URL: http://trip2g:8080
+      ALERT_SINK_JWT_SECRET: ${DEMO_JWT_SECRET:-demo-jwt-secret-change-me}
+      ALERT_SINK_TELEGRAM_TAGS: incidents
+    depends_on:
+      - trip2g
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "${DEMO_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "${DEMO_ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  # A tiny scrape target you can stop and start to demo the full
+  # firing -> resolved lifecycle:
+  #   docker compose stop demo-target    (DemoTargetDown fires)
+  #   docker compose start demo-target   (the same note flips to resolved)
+  demo-target:
+    image: prom/node-exporter:v1.8.1
+
+volumes:
+  trip2g-data:

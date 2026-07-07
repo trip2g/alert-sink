@@ -1,0 +1,20 @@
+route:
+  receiver: default
+  group_by: ["alertname"]
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 4h
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: http://alert-sink:9095/webhook
+        send_resolved: true
+        max_alerts: 0
+    # Alertmanager can deliver to Telegram natively alongside the sink;
+    # receivers carry several config types at once. Uncomment and fill in to
+    # get direct Telegram alerts in addition to the trip2g incident history.
+    # telegram_configs:
+    #   - bot_token: "<bot token>"
+    #     chat_id: <chat id>
+    #     send_resolved: true
