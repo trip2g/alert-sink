@@ -17,7 +17,9 @@ retention) or as a message that scrolled by in a chat.
 Landing each incident as a markdown note gives you:
 
 - a permanent, searchable incident log, one note per incident, with the full
-  label set and timing in structured frontmatter
+  label set and timing in structured frontmatter. Full-text (BM25) search works
+  out of the box; trip2g's semantic vector search is opt-in and off in this demo
+  (it needs your own embedding server), see the trip2g search docs
 - a magazine page that lists all incidents newest first, for humans
 - a place for postmortems: each incident note links to a sibling postmortem
   note that a human (or an agent) writes later, and the sink is careful to
