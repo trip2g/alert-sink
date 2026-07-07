@@ -21,8 +21,9 @@ func NotePath(a Alert) string {
 		t.Year(), int(t.Month()), t.Unix(), sanitizePathPart(a.Name()), sanitizePathPart(a.Fingerprint))
 }
 
-// PostmortemLink is the wikilink target for the (agent-authored) postmortem
-// note. The sink only ever writes the link, never the note at that path.
+// PostmortemLink is the wikilink target for the human-authored postmortem note.
+// The sink only ever writes the link inside the incident note; it never writes
+// or reads the note at that path.
 func PostmortemLink(a Alert) string {
 	t := a.StartsAt.UTC()
 	return fmt.Sprintf("incidents/%04d/%02d/%s-postmortem",
@@ -47,35 +48,45 @@ func sanitizePathPart(s string) string {
 	return out
 }
 
-// statusBlock renders the two adjacent frontmatter lines that change on
-// resolution. Keeping them adjacent lets the firing -> resolved transition be
-// a single find/replace patch, which never touches anything else in the note
-// (an agent's postmortem link or edits survive).
-func statusBlock(status string, endsAt time.Time) string {
+// statusPatchBlock is the contiguous substring that changes on resolution: the
+// last two frontmatter lines (status + ends_at), the closing ---, and the
+// visible status callout immediately after it. Keeping them adjacent lets the
+// firing -> resolved transition be a single find/replace that never touches
+// anything else in the note (the postmortem link and any human additions survive).
+func statusPatchBlock(status string, endsAt time.Time, startsAt time.Time) string {
 	ends := "null"
+	displayTime := startsAt.UTC().Format("2006-01-02 15:04 UTC")
+	callout := "> 🔴 **FIRING** · " + displayTime
 	if !endsAt.IsZero() {
 		ends = strconv.Quote(endsAt.UTC().Format(time.RFC3339))
+		callout = "> ✅ **RESOLVED** · " + endsAt.UTC().Format("2006-01-02 15:04 UTC")
 	}
-	return "status: " + status + "\nends_at: " + ends
+	_ = status // status is encoded in the callout emoji; kept for documentation
+	return "status: " + status + "\nends_at: " + ends + "\n---\n\n" + callout
 }
 
-// FiringStatusBlock is the exact substring the resolution patch searches for.
-func FiringStatusBlock() string {
-	return statusBlock("firing", time.Time{})
+// FiringPatchBlock is the exact substring the resolution patch searches for.
+// It spans the last two frontmatter lines through the opening callout line.
+func FiringPatchBlock(startsAt time.Time) string {
+	return statusPatchBlock("firing", time.Time{}, startsAt)
 }
 
-// ResolvedStatusBlock is the replacement substring for the resolution patch.
-func ResolvedStatusBlock(endsAt time.Time) string {
-	return statusBlock("resolved", endsAt)
+// ResolvedPatchBlock is the replacement for the resolution patch.
+func ResolvedPatchBlock(startsAt, endsAt time.Time) string {
+	return statusPatchBlock("resolved", endsAt, startsAt)
 }
 
-// RenderNote renders the full incident note content for the given alert
-// status. Content is deterministic for a given alert event, so re-deliveries
-// upsert identical bytes.
+// RenderNote renders the full incident note content for the given alert status.
+// Content is deterministic for a given alert event, so re-deliveries upsert
+// identical bytes.
+//
+// The incident note is machine-owned: the sink writes and patches it entirely.
+// A separate human-authored postmortem note is linked via wikilink; the sink
+// never writes that path.
 //
 // telegramTags, when non-empty, adds telegram_publish_at and
 // telegram_publish_tags to the frontmatter, which makes trip2g publish the
-// note as a Telegram post (and edit it in place when the note changes).
+// note as a Telegram post (and edit it in place when the note resolves).
 func RenderNote(a Alert, telegramTags []string) string {
 	name := a.Name()
 	starts := a.StartsAt.UTC().Format(time.RFC3339)
@@ -93,7 +104,6 @@ func RenderNote(a Alert, telegramTags []string) string {
 	b.WriteString("free: true\n")
 	b.WriteString("alertname: " + yamlQuote(name) + "\n")
 	b.WriteString("severity: " + yamlQuote(a.Severity()) + "\n")
-	b.WriteString(statusBlock(status, endsAt) + "\n")
 	b.WriteString("starts_at: " + yamlQuote(starts) + "\n")
 	b.WriteString("fingerprint: " + yamlQuote(a.Fingerprint) + "\n")
 	if labels := sortedKeys(a.Labels); len(labels) > 0 {
@@ -110,21 +120,27 @@ func RenderNote(a Alert, telegramTags []string) string {
 			b.WriteString("  - " + yamlQuote(tag) + "\n")
 		}
 	}
-	b.WriteString("---\n")
+	// status + ends_at are last so they are adjacent to --- and the callout line.
+	// This makes the firing->resolved transition a single contiguous patch.
+	b.WriteString(statusPatchBlock(status, endsAt, a.StartsAt) + "\n")
+	// callout continuation: alert name, severity, summary on lines 2-3.
+	b.WriteString("> **" + name + "** · " + a.Severity() + summaryCallout(a) + "\n")
+	b.WriteString("\n")
 
-	// Body: front-load the human signal; trip2g truncates Telegram posts.
-	b.WriteString("**" + name + "** " + status + " (severity: " + a.Severity() + ").\n")
-	if s := a.Annotations["summary"]; s != "" {
-		b.WriteString("\n" + s + "\n")
-	}
 	if d := a.Annotations["description"]; d != "" {
-		b.WriteString("\n" + d + "\n")
+		b.WriteString(d + "\n\n")
 	}
-	if pairs := labelPairs(a.Labels); pairs != "" {
-		b.WriteString("\nlabels: " + pairs + "\n")
-	}
-	b.WriteString("\nPostmortem: [[" + PostmortemLink(a) + "]]\n")
+	b.WriteString("Postmortem: [[" + PostmortemLink(a) + "]]\n")
 	return b.String()
+}
+
+// summaryCallout returns " · <summary>" when a summary annotation is present,
+// or an empty string otherwise.
+func summaryCallout(a Alert) string {
+	if s := a.Annotations["summary"]; s != "" {
+		return " · " + s
+	}
+	return ""
 }
 
 // RenderIndexNote renders the magazine index note that aggregates all

@@ -73,11 +73,14 @@ Prometheus ──alerts──> Alertmanager ──webhook──> alert-sink ─�
    is a pure function of the alert identity, so re-deliveries and retries hit
    the same note. The upsert is create-only: if the note already exists (a
    repeat notification for a still-firing alert), it is left untouched.
-4. For a resolved alert the sink patches exactly two adjacent frontmatter
-   lines, `status` and `ends_at`, via a single find and replace. It never
-   rewrites the whole note, so anything a human or agent added to the note in
-   the meantime survives. If the patch target is missing because the firing
-   event was lost, the sink creates the note directly in its resolved state.
+4. For a resolved alert the sink patches a single contiguous block that spans
+   the last two frontmatter lines (`status` and `ends_at`), the closing `---`,
+   and the visible status callout immediately after it. A single find-and-replace
+   flips the note from firing to resolved in place: the frontmatter fields change
+   and the callout emoji flips from 🔴 to ✅. Anything after that block, including
+   the postmortem wikilink and any other content, is never touched. If the patch
+   target is missing because the firing event was lost, the sink creates the note
+   directly in its resolved state.
 5. On first write the sink also creates `incidents/index.md` (once, never
    overwritten): a trip2g magazine note that lists every incident newest
    first, excluding postmortems.
@@ -90,8 +93,6 @@ title: "NodeDown - 2026-07-07 14:37"
 free: true
 alertname: "NodeDown"
 severity: "critical"
-status: firing
-ends_at: null
 starts_at: "2026-07-07T14:37:00Z"
 fingerprint: "ab12cd34ef56"
 labels:
@@ -100,15 +101,38 @@ created_at: "2026-07-07T14:37:00Z"
 telegram_publish_at: "2026-07-07T14:37:00Z"
 telegram_publish_tags:
   - "incidents"
+status: firing
+ends_at: null
 ---
-**NodeDown** firing (severity: critical).
 
-Node exporter target is down.
+> 🔴 **FIRING** · 2026-07-07 14:37 UTC
+> **NodeDown** · critical · Node exporter target is down.
+
+Prometheus cannot scrape node-02.
 
 Postmortem: [[incidents/2026/07/ab12cd34ef56-postmortem]]
 ```
 
-### Postmortems and ownership
+On resolve, the `status`/`ends_at` frontmatter lines and the callout line all
+flip together in a single patch:
+
+```markdown
+status: resolved
+ends_at: "2026-07-07T14:41:00Z"
+---
+
+> ✅ **RESOLVED** · 2026-07-07 14:41 UTC
+```
+
+### Incident note ownership
+
+The incident note is **machine-owned**: alert-sink writes and patches it
+entirely. Humans never edit it.
+
+The **postmortem** is a **separate, human-owned file** at
+`incidents/YYYY/MM/<fingerprint>-postmortem.md`. It does not exist by default;
+the unresolved wikilink in the incident note acts as a "create" affordance in
+Obsidian and trip2g. The sink never writes or reads that path.
 
 Two note types share the `incidents/` folder and never collide:
 
@@ -117,9 +141,11 @@ Two note types share the `incidents/` folder and never collide:
 | Incident | `incidents/YYYY/MM/<ts>-<alertname>-<fp>.md` | alert-sink only |
 | Postmortem | `incidents/YYYY/MM/<fp>-postmortem.md` | human or agent only |
 
-Every incident note carries a wikilink to its postmortem path. The sink never
-writes that path, and its resolution patch never touches anything but the two
-status lines, so postmortem work is safe from the machine.
+The value of the split is clean separation: the incident note carries machine
+facts (timing, labels, status), and the postmortem carries human analysis.
+They are cross-linked by wikilink. The sink's patch only ever touches the
+contiguous status block at the bottom of the frontmatter plus the callout line
+immediately below it; everything else in the note is untouched.
 
 ### Telegram posts
 
