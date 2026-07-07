@@ -61,7 +61,6 @@ func statusPatchBlock(status string, endsAt time.Time, startsAt time.Time) strin
 		ends = strconv.Quote(endsAt.UTC().Format(time.RFC3339))
 		callout = "> ✅ **RESOLVED** · " + endsAt.UTC().Format("2006-01-02 15:04 UTC")
 	}
-	_ = status // status is encoded in the callout emoji; kept for documentation
 	return "status: " + status + "\nends_at: " + ends + "\n---\n\n" + callout
 }
 
