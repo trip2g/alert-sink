@@ -163,8 +163,8 @@ func (s *Sink) writeNote(ctx context.Context, a Alert) (bool, error) {
 
 	patch := []NoteChange{{Patch: &NotePatch{
 		Path:    NotePath(a),
-		Find:    FiringStatusBlock(),
-		Replace: ResolvedStatusBlock(a.EndsAt),
+		Find:    FiringPatchBlock(a.StartsAt),
+		Replace: ResolvedPatchBlock(a.StartsAt, a.EndsAt),
 	}}}
 	err := s.client.UpdateNotes(ctx, patch)
 	switch {

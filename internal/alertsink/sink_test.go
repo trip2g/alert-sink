@@ -226,8 +226,15 @@ func TestProcessResolvedPatchesStatusOnly(t *testing.T) {
 	if !strings.Contains(got, "postmortem-link-added-by-agent") {
 		t.Error("resolution patch clobbered the agent's edit")
 	}
-	if !strings.Contains(got, "**NodeDown** firing") {
-		t.Error("patch touched more than the status block (body changed)")
+	// Visible callout must flip; description and postmortem link must survive.
+	if !strings.Contains(got, "> ✅ **RESOLVED**") {
+		t.Error("resolved callout not present after patch")
+	}
+	if strings.Contains(got, "🔴") {
+		t.Error("firing emoji still present after patch")
+	}
+	if !strings.Contains(got, "Prometheus cannot scrape node-02.") {
+		t.Error("patch touched more than the status block (description changed)")
 	}
 }
 
